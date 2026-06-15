@@ -1,0 +1,44 @@
+[build-system]
+requires = ["setuptools>=68", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "doc-storage"
+version = "0.1.0"
+description = "Connect-RPC document version storage service for deploy orders (наряды)"
+requires-python = ">=3.11"
+dependencies = [
+    "connecpy==2.3.0",
+    "protobuf>=5.26",
+    "anthropic>=0.40",
+    "psycopg[binary]>=3.2",
+    "psycopg-pool>=3.2",
+    "boto3>=1.34",
+    "beautifulsoup4>=4.12",
+    "lxml>=5.0",
+    "python-docx>=1.1",
+    "uvicorn[standard]>=0.30",
+]
+
+[project.optional-dependencies]
+dev = [
+    "pytest>=8.0",
+    "pytest-asyncio>=0.23",
+    "protoc-gen-connecpy==2.3.0",
+    "grpcio-tools>=1.62",
+]
+
+[project.scripts]
+doc-storage = "app.app:main"
+
+[tool.setuptools]
+package-dir = { "" = "src" }
+
+[tool.setuptools.packages.find]
+where = ["src"]
+include = ["app*", "storage*"]
+
+[tool.pytest.ini_options]
+asyncio_mode = "auto"
+pythonpath = ["src"]
+testpaths = ["tests"]

@@ -1,0 +1,40 @@
+syntax = "proto3";
+
+package storage.v1;
+
+option go_package = "github.com/mruruk/doc-storage/gen/storage/v1;storagev1";
+
+// StorageService stores company documents ("наряды" / deploy orders) as an
+// append-only sequence of immutable versions, and lets clients search them.
+service StorageService {
+    // AgenticSaveFile streams an uploaded document. The server assembles the
+    // parts, runs the document-versioning agent, and persists a new version.
+    rpc AgenticSaveFile(stream SaveFileRequest) returns (SaveFileResponse);
+
+    // AgenticSearch performs a full-text search across stored document
+    // versions and returns ranked results.
+    rpc AgenticSearch(SearchRequest) returns (SearchResponse);
+}
+
+message SaveFileRequest {
+    string file_name = 1;
+    bytes part = 2;
+}
+
+message SaveFileResponse {}
+
+message SearchRequest {
+    string query = 1;
+    int32 limit = 2;
+}
+
+message SearchResult {
+    string document_name = 1;
+    string html_content = 2;
+    string header = 3;
+    float score = 4;
+}
+
+message SearchResponse {
+    repeated SearchResult results = 1;
+}
