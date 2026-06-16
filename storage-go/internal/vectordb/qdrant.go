@@ -121,10 +121,9 @@ func (c *Client) SaveEmbeddings(ctx context.Context, fileName string, chunks []c
 			},
 			"payload": map[string]any{
 				"document_name": fileName,
-				"html_content":  ch.OriginalHTML,
+				"html_content":  ch.Content,
 				"text_to_embed": ch.TextToEmbed,
 				"header":        ch.Header,
-				"is_table":      strings.Contains(ch.OriginalHTML, "<table>"),
 			},
 		})
 	}

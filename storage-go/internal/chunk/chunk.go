@@ -4,10 +4,12 @@ package chunk
 
 // Chunk is one semantic chunk of a document.
 type Chunk struct {
-	// TextToEmbed is the embedding input (context + title + summary + content).
+	// TextToEmbed is the embedding input (global context + the generated content).
 	TextToEmbed string
-	// OriginalHTML is the rendered HTML stored alongside the vector.
-	OriginalHTML string
+	// Content is the model-generated, retrieval-optimized chunk text. It is what
+	// gets stored and returned in search results — not the original document
+	// markup.
+	Content string
 	// Header is a short title for the chunk.
 	Header string
 }
