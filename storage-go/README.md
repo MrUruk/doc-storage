@@ -47,9 +47,17 @@ HTML-очистка переиспользует модуль `cleaner-go` че�
 
 ## Запуск
 
+`config.InitEnv()` выбирает .env-файл по `APP_ENV` (fallback `GO_ENV`):
+`unset → .env` (сервис в контейнере), `APP_ENV=development → .env.development`
+(локальный инстанс). Обязательные переменные читаются через
+`config.GetEnvPanic` — старт падает с паникой, если их нет.
+
 ```bash
-cp .env.example .env      # заполнить URL сервисов
+cp .env.example .env                 # сервис/контейнер
 go run ./cmd/server
+
+cp .env.example .env.development     # локально
+APP_ENV=development go run ./cmd/server
 ```
 
 ## Кодоген proto

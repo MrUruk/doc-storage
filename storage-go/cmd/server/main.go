@@ -29,51 +29,66 @@ import (
 )
 
 func main() {
-	cfg := config.Load()
-	initLogging(cfg.LogLevel)
-	serve(cfg)
+	config.InitEnv()
+	initLogging()
+	serve()
 }
 
 // serve wires up every collaborator and blocks until shutdown. Startup is
-// fail-fast: any unavailable dependency panics, since the process cannot do its
-// job without it. Panicking (rather than os.Exit) unwinds the stack so the
-// deferred resource closers below still run, and emits a stack trace pointing
-// at the failed step.
-func serve(cfg *config.Config) {
+// fail-fast: missing required config (config.GetEnvPanic) or an unavailable
+// dependency panics, since the process cannot do its job without it. Panicking
+// (rather than os.Exit) unwinds the stack so the deferred resource closers
+// below still run, and emits a stack trace pointing at the failed step.
+func serve() {
 	ctx, stop := signal.NotifyContext(context.Background(), syscall.SIGINT, syscall.SIGTERM)
 	defer stop()
 
 	httpClient := &http.Client{Timeout: 5 * time.Minute}
 
 	// PostgreSQL.
+	databaseURL := config.GetEnvPanic("DATABASE_URL")
 	sql := sqldb.New()
-	must("connect postgres", sql.Connect(ctx, cfg.DatabaseURL))
+	must("connect postgres", sql.Connect(ctx, databaseURL))
 	defer sql.Close()
 	must("ensure tables", sql.EnsureTables(ctx))
-	slog.Info("postgres ready", "url", cfg.DatabaseURL)
+	slog.Info("postgres ready", "url", databaseURL)
 
 	// Qdrant.
-	vdb := vectordb.New(httpClient, cfg.QdrantHost, cfg.QdrantPort, cfg.QdrantCollection)
+	qdrantCollection := config.GetEnvPanic("QDRANT_COLLECTION")
+	vdb := vectordb.New(
+		httpClient,
+		config.GetEnvPanic("QDRANT_HOST"),
+		config.GetEnvInt("QDRANT_PORT", 6333),
+		qdrantCollection,
+	)
 	must("connect qdrant", vdb.Connect(ctx))
-	slog.Info("qdrant ready", "collection", cfg.QdrantCollection)
+	slog.Info("qdrant ready", "collection", qdrantCollection)
 
 	// S3 uploader (client is lazy; no connection established here).
-	uploader := blob.NewUploader(cfg.S3URL, cfg.S3Bucket, cfg.S3AccessKey, cfg.S3SecretKey)
+	uploader := blob.NewUploader(
+		config.GetEnvPanic("S3_URL"),
+		config.GetEnvPanic("S3_BUCKET"),
+		config.GetEnvPanic("RUSTFS_ACCESS_KEY"),
+		config.GetEnvPanic("RUSTFS_SECRET_KEY"),
+	)
 
 	// Pandoc Connect client (lazy; reached on first request).
-	pandoc := pandocv1connect.NewPandocServiceClient(httpClient, cfg.PandocServiceURL)
-	slog.Info("pandoc client ready", "url", cfg.PandocServiceURL)
+	pandocURL := config.GetEnvPanic("PANDOC_SERVICE_URL")
+	pandoc := pandocv1connect.NewPandocServiceClient(httpClient, pandocURL)
+	slog.Info("pandoc client ready", "url", pandocURL)
 
 	// eino chat model (OpenAI-compatible endpoint).
+	modelName := config.GetEnvPanic("MODEL_NAME")
+	modelURL := config.GetEnvPanic("MODEL_URL")
 	temperature := float32(0.1)
 	chatModel, err := einoopenai.NewChatModel(ctx, &einoopenai.ChatModelConfig{
-		BaseURL:     cfg.ModelURL + "/v1",
+		BaseURL:     modelURL + "/v1",
 		APIKey:      "not-needed",
-		Model:       cfg.ModelName,
+		Model:       modelName,
 		Temperature: &temperature,
 	})
 	must("init chat model", err)
-	slog.Info("eino chat model ready", "model", cfg.ModelName, "url", cfg.ModelURL)
+	slog.Info("eino chat model ready", "model", modelName, "url", modelURL)
 
 	svc := service.New(service.Deps{
 		Pandoc:       pandoc,
@@ -82,8 +97,8 @@ func serve(cfg *config.Config) {
 		Uploader:     uploader,
 		ChatModel:    chatModel,
 		HTTPClient:   httpClient,
-		EmbeddingURL: cfg.EmbeddingServiceURL,
-		MaxLength:    cfg.MaxLength,
+		EmbeddingURL: config.GetEnvPanic("EMBEDDING_SERVICE_URL"),
+		MaxLength:    config.GetEnvInt("MAX_LENGTH", 1000),
 	})
 
 	mux := http.NewServeMux()
@@ -93,7 +108,7 @@ func serve(cfg *config.Config) {
 	)
 	mux.Handle(path, handler)
 
-	addr := net.JoinHostPort(cfg.Host, strconv.Itoa(cfg.Port))
+	addr := net.JoinHostPort(config.GetEnv("HOST", "localhost"), strconv.Itoa(config.GetEnvInt("PORT", 8080)))
 	srv := &http.Server{
 		Addr:    addr,
 		Handler: h2c.NewHandler(mux, &http2.Server{}), // HTTP/2 cleartext for gRPC/Connect streaming
@@ -130,14 +145,12 @@ func must(step string, err error) {
 	}
 }
 
-func initLogging(level string) {
+func initLogging() {
 	lvl := slog.LevelInfo
-	switch level {
+	switch config.GetEnv("LOG_LEVEL", "info") {
 	case "debug":
 		lvl = slog.LevelDebug
-	case "error":
-		lvl = slog.LevelError
-	case "critical":
+	case "error", "critical":
 		lvl = slog.LevelError
 	}
 	slog.SetDefault(slog.New(slog.NewTextHandler(os.Stdout, &slog.HandlerOptions{Level: lvl})))

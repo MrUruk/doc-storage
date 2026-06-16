@@ -1,81 +1,65 @@
-// Package config loads runtime configuration from the environment, mirroring
-// the Python params.Params. A local .env file is loaded if present.
 package config
 
 import (
+	"fmt"
 	"os"
 	"strconv"
 
 	"github.com/joho/godotenv"
 )
 
-type Config struct {
-	Host string
-	Port int
-
-	PandocServiceURL string
-
-	QdrantHost       string
-	QdrantPort       int
-	QdrantCollection string
-
-	ModelName           string
-	ModelURL            string
-	ModelPath           string
-	EmbeddingServiceURL string
-	MaxLength           int
-
-	DatabaseURL string
-	S3URL       string
-	S3Bucket    string
-	S3AccessKey string
-	S3SecretKey string
-
-	LogLevel string
-}
-
-// Load reads configuration from the environment with the same defaults as the
-// Python implementation.
-func Load() *Config {
-	_ = godotenv.Load() // .env is optional
-
-	return &Config{
-		Host:             get("HOST", "localhost"),
-		Port:             getInt("PORT", 8080),
-		PandocServiceURL: get("PANDOC_SERVICE_URL", "http://localhost:9797"),
-
-		QdrantHost:       get("QDRANT_HOST", "localhost"),
-		QdrantPort:       getInt("QDRANT_PORT", 6333),
-		QdrantCollection: get("QDRANT_COLLECTION", "qwen3_html_agentic_collection"),
-
-		ModelName:           get("MODEL_NAME", "google/gemma-4-26B-A4B-it"),
-		ModelURL:            get("MODEL_URL", "http://localhost:9003"),
-		ModelPath:           get("MODEL_PATH", "./models"),
-		EmbeddingServiceURL: get("EMBEDDING_SERVICE_URL", "http://localhost:9003/v1/embeddings"),
-		MaxLength:           getInt("MAX_LENGTH", 1000),
-
-		DatabaseURL: get("DATABASE_URL", "postgres://postgres:postgres@localhost:9999/agents?sslmode=disable"),
-		S3URL:       get("S3_URL", "localhost:9000"),
-		S3Bucket:    get("S3_BUCKET", "docs"),
-		S3AccessKey: get("RUSTFS_ACCESS_KEY", "rustfsadmin"),
-		S3SecretKey: get("RUSTFS_SECRET_KEY", "rustfsadmin"),
-
-		LogLevel: get("LOG_LEVEL", "info"),
+// InitEnv loads environment variables from a single .env file, selected by
+// APP_ENV (falling back to GO_ENV):
+//
+//   - unset                -> .env             (default; e.g. the service in a container)
+//   - APP_ENV=development   -> .env.development (a local instance)
+//
+// This lets one machine run the app from different .env files: leave APP_ENV
+// unset to use .env, or set APP_ENV=development to use .env.development. Real
+// process environment variables always take precedence over the file.
+func InitEnv() {
+	env := os.Getenv("APP_ENV")
+	if env == "" {
+		env = os.Getenv("GO_ENV")
 	}
-}
 
-func get(key, def string) string {
-	if v, ok := os.LookupEnv(key); ok && v != "" {
-		return v
+	file := ".env"
+	if env != "" {
+		file = ".env." + env
 	}
-	return def
+
+	_ = godotenv.Load(file)
 }
 
-func getInt(key string, def int) int {
-	if v, ok := os.LookupEnv(key); ok && v != "" {
-		if n, err := strconv.Atoi(v); err == nil {
+// IsDev reports whether the app runs in development mode.
+func IsDev() bool {
+	return os.Getenv("GIN_MODE") == "debug"
+}
+
+// GetEnvPanic returns the value for key, panicking if it is unset/empty. Use it
+// for configuration the service cannot run without.
+func GetEnvPanic(key string) string {
+	value := os.Getenv(key)
+	if value == "" {
+		panic(fmt.Sprintf("Env %s not provided", key))
+	}
+	return value
+}
+
+// GetEnv returns the value for key, or fallback when it is unset/empty.
+func GetEnv(key, fallback string) string {
+	if value := os.Getenv(key); value != "" {
+		return value
+	}
+	return fallback
+}
+
+// GetEnvInt returns the integer value for key, or fallback when unset/invalid.
+func GetEnvInt(key string, fallback int) int {
+	if value := os.Getenv(key); value != "" {
+		if n, err := strconv.Atoi(value); err == nil {
 			return n
 		}
 	}
-	return def
+	return fallback
 }
