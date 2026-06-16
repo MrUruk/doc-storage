@@ -1,0 +1,35 @@
+syntax = "proto3";
+
+package storage.v1;
+
+option go_package = "github.com/mruruk/doc-storage/storage-go/gen/storage/v1;storagev1";
+
+service StorageService {
+  rpc AgenticSaveFile(stream SaveFileRequest) returns (SaveFileResponse);
+  rpc AgenticSearch(SearchRequest) returns (SearchResponse);
+}
+
+message SaveFileRequest {
+  string file_name = 1;
+  bytes part = 2;
+  string project = 3;
+  string doc_type = 4;
+}
+
+message SaveFileResponse {}
+
+message SearchRequest {
+  string query = 1;
+  int32 limit = 2;
+}
+
+message SearchResult {
+  string document_name = 1;
+  string html_content = 2;
+  string header = 3;
+  float score = 4;
+}
+
+message SearchResponse {
+  repeated SearchResult results = 1;
+}

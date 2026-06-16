@@ -1,0 +1,60 @@
+syntax = "proto3";
+
+package pandoc.v1;
+
+option go_package = "github.com/mruruk/doc-storage/storage-go/gen/pandoc/v1;pandocv1";
+
+service PandocService {
+  rpc ConvertDocxToMarkdown(ConvertDocxToMarkdownRequest) returns (ConvertDocxToMarkdownResponse);
+  rpc ConvertMarkdownToDocx(ConvertMarkdownToDocxRequest) returns (ConvertMarkdownToDocxResponse);
+  rpc ConvertDocxToHtml(ConvertDocxToHtmlRequest) returns (ConvertDocxToHtmlResponse);
+  rpc ConvertHtmlToDocx(ConvertHtmlToDocxRequest) returns (ConvertHtmlToDocxResponse);
+}
+
+enum MarkdownFlavor {
+  MARKDOWN_FLAVOR_UNSPECIFIED = 0;
+  MARKDOWN_FLAVOR_PANDOC = 1;
+  MARKDOWN_FLAVOR_COMMONMARK = 2;
+  MARKDOWN_FLAVOR_GFM = 3;
+}
+
+message ConvertDocxToMarkdownRequest {
+  bytes docx_bytes = 1;
+  MarkdownFlavor markdown_flavor = 2;
+  bool extract_media = 3;
+}
+
+message ConvertDocxToMarkdownResponse {
+  string markdown_text = 1;
+  map<string, bytes> media_files = 2;
+}
+
+message ConvertMarkdownToDocxRequest {
+  string markdown_text = 1;
+  bytes reference_docx = 2;
+  map<string, bytes> media_files = 3;
+}
+
+message ConvertMarkdownToDocxResponse {
+  bytes docx_bytes = 1;
+}
+
+message ConvertDocxToHtmlRequest {
+  bytes docx_bytes = 1;
+  bool extract_media = 2;
+}
+
+message ConvertDocxToHtmlResponse {
+  string html_text = 1;
+  map<string, bytes> media_files = 2;
+}
+
+message ConvertHtmlToDocxRequest {
+  string html_text = 1;
+  bytes reference_docx = 2;
+  map<string, bytes> media_files = 3;
+}
+
+message ConvertHtmlToDocxResponse {
+  bytes docx_bytes = 1;
+}
