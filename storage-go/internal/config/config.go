@@ -1,9 +1,7 @@
 package config
 
 import (
-	"fmt"
 	"os"
-	"strconv"
 
 	"github.com/joho/godotenv"
 )
@@ -29,37 +27,4 @@ func InitEnv() {
 	}
 
 	_ = godotenv.Load(file)
-}
-
-// IsDev reports whether the app runs in development mode.
-func IsDev() bool {
-	return os.Getenv("GIN_MODE") == "debug"
-}
-
-// GetEnvPanic returns the value for key, panicking if it is unset/empty. Use it
-// for configuration the service cannot run without.
-func GetEnvPanic(key string) string {
-	value := os.Getenv(key)
-	if value == "" {
-		panic(fmt.Sprintf("Env %s not provided", key))
-	}
-	return value
-}
-
-// GetEnv returns the value for key, or fallback when it is unset/empty.
-func GetEnv(key, fallback string) string {
-	if value := os.Getenv(key); value != "" {
-		return value
-	}
-	return fallback
-}
-
-// GetEnvInt returns the integer value for key, or fallback when unset/invalid.
-func GetEnvInt(key string, fallback int) int {
-	if value := os.Getenv(key); value != "" {
-		if n, err := strconv.Atoi(value); err == nil {
-			return n
-		}
-	}
-	return fallback
 }

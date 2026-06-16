@@ -35,7 +35,7 @@ func main() {
 }
 
 // serve wires up every collaborator and blocks until shutdown. Startup is
-// fail-fast: missing required config (config.GetEnvPanic) or an unavailable
+// fail-fast through must: a missing required env var or an unavailable
 // dependency panics, since the process cannot do its job without it. Panicking
 // (rather than os.Exit) unwinds the stack so the deferred resource closers
 // below still run, and emits a stack trace pointing at the failed step.
@@ -46,7 +46,8 @@ func serve() {
 	httpClient := &http.Client{Timeout: 5 * time.Minute}
 
 	// PostgreSQL.
-	databaseURL := config.GetEnvPanic("DATABASE_URL")
+	databaseURL, err := requireEnv("DATABASE_URL")
+	must("env DATABASE_URL", err)
 	sql := sqldb.New()
 	must("connect postgres", sql.Connect(ctx, databaseURL))
 	defer sql.Close()
@@ -54,32 +55,36 @@ func serve() {
 	slog.Info("postgres ready", "url", databaseURL)
 
 	// Qdrant.
-	qdrantCollection := config.GetEnvPanic("QDRANT_COLLECTION")
-	vdb := vectordb.New(
-		httpClient,
-		config.GetEnvPanic("QDRANT_HOST"),
-		config.GetEnvInt("QDRANT_PORT", 6333),
-		qdrantCollection,
-	)
+	qdrantHost, err := requireEnv("QDRANT_HOST")
+	must("env QDRANT_HOST", err)
+	qdrantCollection, err := requireEnv("QDRANT_COLLECTION")
+	must("env QDRANT_COLLECTION", err)
+	vdb := vectordb.New(httpClient, qdrantHost, getEnvInt("QDRANT_PORT", 6333), qdrantCollection)
 	must("connect qdrant", vdb.Connect(ctx))
 	slog.Info("qdrant ready", "collection", qdrantCollection)
 
 	// S3 uploader (client is lazy; no connection established here).
-	uploader := blob.NewUploader(
-		config.GetEnvPanic("S3_URL"),
-		config.GetEnvPanic("S3_BUCKET"),
-		config.GetEnvPanic("RUSTFS_ACCESS_KEY"),
-		config.GetEnvPanic("RUSTFS_SECRET_KEY"),
-	)
+	s3URL, err := requireEnv("S3_URL")
+	must("env S3_URL", err)
+	s3Bucket, err := requireEnv("S3_BUCKET")
+	must("env S3_BUCKET", err)
+	s3Access, err := requireEnv("RUSTFS_ACCESS_KEY")
+	must("env RUSTFS_ACCESS_KEY", err)
+	s3Secret, err := requireEnv("RUSTFS_SECRET_KEY")
+	must("env RUSTFS_SECRET_KEY", err)
+	uploader := blob.NewUploader(s3URL, s3Bucket, s3Access, s3Secret)
 
 	// Pandoc Connect client (lazy; reached on first request).
-	pandocURL := config.GetEnvPanic("PANDOC_SERVICE_URL")
+	pandocURL, err := requireEnv("PANDOC_SERVICE_URL")
+	must("env PANDOC_SERVICE_URL", err)
 	pandoc := pandocv1connect.NewPandocServiceClient(httpClient, pandocURL)
 	slog.Info("pandoc client ready", "url", pandocURL)
 
 	// eino chat model (OpenAI-compatible endpoint).
-	modelName := config.GetEnvPanic("MODEL_NAME")
-	modelURL := config.GetEnvPanic("MODEL_URL")
+	modelName, err := requireEnv("MODEL_NAME")
+	must("env MODEL_NAME", err)
+	modelURL, err := requireEnv("MODEL_URL")
+	must("env MODEL_URL", err)
 	temperature := float32(0.1)
 	chatModel, err := einoopenai.NewChatModel(ctx, &einoopenai.ChatModelConfig{
 		BaseURL:     modelURL + "/v1",
@@ -90,6 +95,9 @@ func serve() {
 	must("init chat model", err)
 	slog.Info("eino chat model ready", "model", modelName, "url", modelURL)
 
+	embeddingURL, err := requireEnv("EMBEDDING_SERVICE_URL")
+	must("env EMBEDDING_SERVICE_URL", err)
+
 	svc := service.New(service.Deps{
 		Pandoc:       pandoc,
 		VectorDB:     vdb,
@@ -97,8 +105,8 @@ func serve() {
 		Uploader:     uploader,
 		ChatModel:    chatModel,
 		HTTPClient:   httpClient,
-		EmbeddingURL: config.GetEnvPanic("EMBEDDING_SERVICE_URL"),
-		MaxLength:    config.GetEnvInt("MAX_LENGTH", 1000),
+		EmbeddingURL: embeddingURL,
+		MaxLength:    getEnvInt("MAX_LENGTH", 1000),
 	})
 
 	mux := http.NewServeMux()
@@ -108,7 +116,7 @@ func serve() {
 	)
 	mux.Handle(path, handler)
 
-	addr := net.JoinHostPort(config.GetEnv("HOST", "localhost"), strconv.Itoa(config.GetEnvInt("PORT", 8080)))
+	addr := net.JoinHostPort(getEnv("HOST", "localhost"), strconv.Itoa(getEnvInt("PORT", 8080)))
 	srv := &http.Server{
 		Addr:    addr,
 		Handler: h2c.NewHandler(mux, &http2.Server{}), // HTTP/2 cleartext for gRPC/Connect streaming
@@ -138,16 +146,43 @@ func serve() {
 	}
 }
 
-// must aborts startup if err is non-nil.
+// must aborts startup if err is non-nil. It is the single fail-fast mechanism.
 func must(step string, err error) {
 	if err != nil {
 		panic(fmt.Errorf("startup: %s: %w", step, err))
 	}
 }
 
+// requireEnv returns the value for key, or an error when it is unset/empty, so
+// the caller can route it through must.
+func requireEnv(key string) (string, error) {
+	if v := os.Getenv(key); v != "" {
+		return v, nil
+	}
+	return "", errors.New("not provided")
+}
+
+// getEnv returns the value for key, or fallback when unset/empty.
+func getEnv(key, fallback string) string {
+	if v := os.Getenv(key); v != "" {
+		return v
+	}
+	return fallback
+}
+
+// getEnvInt returns the integer value for key, or fallback when unset/invalid.
+func getEnvInt(key string, fallback int) int {
+	if v := os.Getenv(key); v != "" {
+		if n, err := strconv.Atoi(v); err == nil {
+			return n
+		}
+	}
+	return fallback
+}
+
 func initLogging() {
 	lvl := slog.LevelInfo
-	switch config.GetEnv("LOG_LEVEL", "info") {
+	switch getEnv("LOG_LEVEL", "info") {
 	case "debug":
 		lvl = slog.LevelDebug
 	case "error", "critical":
