@@ -4,6 +4,7 @@ package main
 import (
 	"context"
 	"errors"
+	"fmt"
 	"log/slog"
 	"net"
 	"net/http"
@@ -30,14 +31,15 @@ import (
 func main() {
 	cfg := config.Load()
 	initLogging(cfg.LogLevel)
-
-	if err := run(cfg); err != nil {
-		slog.Error("server exited with error", "err", err)
-		os.Exit(1)
-	}
+	serve(cfg)
 }
 
-func run(cfg *config.Config) error {
+// serve wires up every collaborator and blocks until shutdown. Startup is
+// fail-fast: any unavailable dependency panics, since the process cannot do its
+// job without it. Panicking (rather than os.Exit) unwinds the stack so the
+// deferred resource closers below still run, and emits a stack trace pointing
+// at the failed step.
+func serve(cfg *config.Config) {
 	ctx, stop := signal.NotifyContext(context.Background(), syscall.SIGINT, syscall.SIGTERM)
 	defer stop()
 
@@ -45,26 +47,20 @@ func run(cfg *config.Config) error {
 
 	// PostgreSQL.
 	sql := sqldb.New()
-	if err := sql.Connect(ctx, cfg.DatabaseURL); err != nil {
-		return err
-	}
+	must("connect postgres", sql.Connect(ctx, cfg.DatabaseURL))
 	defer sql.Close()
-	if err := sql.EnsureTables(ctx); err != nil {
-		return err
-	}
+	must("ensure tables", sql.EnsureTables(ctx))
 	slog.Info("postgres ready", "url", cfg.DatabaseURL)
 
 	// Qdrant.
 	vdb := vectordb.New(httpClient, cfg.QdrantHost, cfg.QdrantPort, cfg.QdrantCollection)
-	if err := vdb.Connect(ctx); err != nil {
-		return err
-	}
+	must("connect qdrant", vdb.Connect(ctx))
 	slog.Info("qdrant ready", "collection", cfg.QdrantCollection)
 
-	// S3 uploader.
+	// S3 uploader (client is lazy; no connection established here).
 	uploader := blob.NewUploader(cfg.S3URL, cfg.S3Bucket, cfg.S3AccessKey, cfg.S3SecretKey)
 
-	// Pandoc Connect client.
+	// Pandoc Connect client (lazy; reached on first request).
 	pandoc := pandocv1connect.NewPandocServiceClient(httpClient, cfg.PandocServiceURL)
 	slog.Info("pandoc client ready", "url", cfg.PandocServiceURL)
 
@@ -76,9 +72,7 @@ func run(cfg *config.Config) error {
 		Model:       cfg.ModelName,
 		Temperature: &temperature,
 	})
-	if err != nil {
-		return err
-	}
+	must("init chat model", err)
 	slog.Info("eino chat model ready", "model", cfg.ModelName, "url", cfg.ModelURL)
 
 	svc := service.New(service.Deps{
@@ -105,19 +99,35 @@ func run(cfg *config.Config) error {
 		Handler: h2c.NewHandler(mux, &http2.Server{}), // HTTP/2 cleartext for gRPC/Connect streaming
 	}
 
+	// Surface a fatal listen error from the goroutine to the main goroutine, so
+	// the panic unwinds through serve's defers instead of bypassing them.
+	listenErr := make(chan error, 1)
 	go func() {
 		slog.Info("listening", "addr", addr)
 		if err := srv.ListenAndServe(); err != nil && !errors.Is(err, http.ErrServerClosed) {
-			slog.Error("listen error", "err", err)
-			stop()
+			listenErr <- err
 		}
 	}()
 
-	<-ctx.Done()
-	slog.Info("shutting down")
+	select {
+	case <-ctx.Done():
+		slog.Info("shutting down")
+	case err := <-listenErr:
+		must("listen", err)
+	}
+
 	shutdownCtx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 	defer cancel()
-	return srv.Shutdown(shutdownCtx)
+	if err := srv.Shutdown(shutdownCtx); err != nil {
+		slog.Error("graceful shutdown failed", "err", err)
+	}
+}
+
+// must aborts startup if err is non-nil.
+func must(step string, err error) {
+	if err != nil {
+		panic(fmt.Errorf("startup: %s: %w", step, err))
+	}
 }
 
 func initLogging(level string) {
