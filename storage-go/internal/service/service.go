@@ -41,7 +41,7 @@ type Deps struct {
 	ChatModel    model.ToolCallingChatModel
 	HTTPClient   *http.Client
 	EmbeddingURL string
-	MaxLength    int
+	MaxLength    string
 }
 
 type Service struct {

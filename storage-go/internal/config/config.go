@@ -1,6 +1,7 @@
 package config
 
 import (
+	"fmt"
 	"os"
 
 	"github.com/joho/godotenv"
@@ -29,4 +30,14 @@ func InitEnv() {
 // IsDev reports whether the app runs in development mode.
 func IsDev() bool {
 	return os.Getenv("GIN_MODE") == "debug"
+}
+
+// MustEnv returns the value for key, panicking if it is unset/empty. It is the
+// single fail-fast accessor for required configuration.
+func MustEnv(key string) string {
+	value := os.Getenv(key)
+	if value == "" {
+		panic(fmt.Sprintf("Env %s not provided", key))
+	}
+	return value
 }

@@ -36,7 +36,7 @@ func TestEncodeTextsOrdersByIndexAndWrapsQueries(t *testing.T) {
 	}))
 	defer srv.Close()
 
-	out, err := EncodeTexts(context.Background(), srv.Client(), srv.URL, []string{"a", "b"}, 1000, true)
+	out, err := EncodeTexts(context.Background(), srv.Client(), srv.URL, []string{"a", "b"}, "1000", true)
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}

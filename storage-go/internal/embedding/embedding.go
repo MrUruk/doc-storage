@@ -32,7 +32,7 @@ type response struct {
 // EncodeTexts returns embeddings for texts. When isQuery is true, each input is
 // wrapped with the retrieval instruction. maxLength is accepted for parity with
 // the Python signature; the embedding request body does not include it.
-func EncodeTexts(ctx context.Context, client *http.Client, url string, texts []string, _ int, isQuery bool) ([][]float32, error) {
+func EncodeTexts(ctx context.Context, client *http.Client, url string, texts []string, _ string, isQuery bool) ([][]float32, error) {
 	in := texts
 	if isQuery {
 		in = make([]string, len(texts))

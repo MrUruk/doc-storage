@@ -44,9 +44,9 @@ type Hit struct {
 	Header       string
 }
 
-func New(httpClient *http.Client, host string, port int, collection string) *Client {
+func New(httpClient *http.Client, host, port, collection string) *Client {
 	return &Client{
-		baseURL:    fmt.Sprintf("http://%s:%d", host, port),
+		baseURL:    fmt.Sprintf("http://%s:%s", host, port),
 		collection: collection,
 		http:       httpClient,
 	}
